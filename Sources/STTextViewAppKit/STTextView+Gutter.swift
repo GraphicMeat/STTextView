@@ -148,10 +148,17 @@ extension STTextView {
 
             for (layoutFragment, fragmentView) in visibleFragmentViews {
                 let contentRangeInElement = (layoutFragment.textElement as? NSTextParagraph)?.paragraphContentRange ?? layoutFragment.rangeInElement
+                let isFolded = (layoutFragment as? STTextLayoutFragment)?.isCollapsed ?? false
 
                 // Only show line numbers for the first line fragment or extra line fragments
                 for textLineFragment in layoutFragment.textLineFragments where (textLineFragment.isExtraLineFragment || layoutFragment.textLineFragments.first == textLineFragment) {
                     let lineNumber = startLineIndex + linesCount + 1
+                    linesCount += 1
+
+                    // Folded lines are zero-height and skipped visually (no
+                    // gutter cell), but the counter above still advances so
+                    // the next visible line keeps its true document number.
+                    guard !isFolded else { continue }
 
                     // Determine if this line is selected
                     let isLineSelected = STGutterCalculations.isLineSelected(
@@ -207,7 +214,6 @@ extension STTextView {
 
                     gutterView.containerView.addSubview(numberCell)
                     requiredWidthFitText = max(requiredWidthFitText, numberCell.intrinsicContentSize.width)
-                    linesCount += 1
                 }
             }
 
