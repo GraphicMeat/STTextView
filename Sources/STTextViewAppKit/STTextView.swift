@@ -369,6 +369,36 @@ open class STTextView: NSView, NSTextInput, NSTextContent, STTextViewProtocol {
     @objc
     open dynamic var highlightSelectedLine = false
 
+    /// Ranges whose layout is collapsed (e.g. code folding). The underlying
+    /// text storage is untouched; folded ranges only affect layout fragment
+    /// geometry (zero height) and drawing (skipped) for elements they contain.
+    @MainActor @Invalidating(.layout, .display)
+    open var foldedRanges: [NSTextRange] = [] {
+        didSet {
+            let documentRange = textLayoutManager.documentRange
+            // NSTextLayoutManager doesn't re-consult the
+            // NSTextLayoutManagerDelegate for fragments it already created
+            // and cached -- invalidateLayout(for:) alone only marks their
+            // geometry dirty, it doesn't ask the delegate to rebuild them.
+            // So update `isCollapsed` on already-existing fragments directly;
+            // fragments not yet created will still get the right value from
+            // the delegate (STTextView+NSTextLayoutManagerDelegate.swift)
+            // once they're first laid out.
+            textLayoutManager.enumerateTextLayoutFragments(from: documentRange.location, options: []) { fragment in
+                if let stFragment = fragment as? STTextLayoutFragment {
+                    stFragment.isCollapsed = foldedRanges.contains { $0.contains(stFragment.rangeInElement) }
+                }
+                return true
+            }
+            textLayoutManager.invalidateLayout(for: documentRange)
+        }
+    }
+
+    /// Returns whether `range` lies within a folded range.
+    open func isRangeFolded(_ range: NSTextRange) -> Bool {
+        foldedRanges.contains { $0.intersects(range) || $0.contains(range.location) }
+    }
+
     /// Enable to show line numbers in the gutter.
     @MainActor @Invalidating(.layout)
     open var showsLineNumbers = false {

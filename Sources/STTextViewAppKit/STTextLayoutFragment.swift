@@ -7,6 +7,11 @@ import STObjCLandShim
 final class STTextLayoutFragment: NSTextLayoutFragment {
     var showsInvisibleCharacters = false
 
+    /// When true, this fragment reports zero layout height and skips
+    /// drawing, without touching the underlying text storage. Used to
+    /// implement non-destructive code folding.
+    var isCollapsed = false
+
     private let defaultParagraphStyle: NSParagraphStyle
 
     /// Mapped to the `extraLineFragmentAttributes` ObjC selector so that
@@ -32,7 +37,17 @@ final class STTextLayoutFragment: NSTextLayoutFragment {
     //    super.layoutFragmentFrame
     // }
 
+    override var layoutFragmentFrame: CGRect {
+        var frame = super.layoutFragmentFrame
+        if isCollapsed {
+            frame.size.height = 0
+        }
+        return frame
+    }
+
     override func draw(at point: CGPoint, in context: CGContext) {
+        guard !isCollapsed else { return }
+
         // Layout fragment draw text at the bottom (after apply baselineOffset) but ignore the paragraph line height
         // This is a workaround/patch to position text nicely in the line
         //
