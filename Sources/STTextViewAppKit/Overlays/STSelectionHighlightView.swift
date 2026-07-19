@@ -3,15 +3,24 @@
 
 import AppKit
 
-private let emphasizedColor = NSColor.selectedTextBackgroundColor
-private let unemphasizedColor = NSColor.unemphasizedSelectedTextBackgroundColor
-
 final class STSelectionHighlightView: NSView {
 
     var backgroundColor: NSColor? {
         didSet {
             layer?.backgroundColor = backgroundColor?.cgColor
         }
+    }
+
+    /// Color used while the text view is the emphasized (active/first responder) selection.
+    /// Defaults to the system color; STTextView overrides it from `selectedTextBackgroundColor`.
+    var emphasizedColor: NSColor = .selectedTextBackgroundColor {
+        didSet { updateBackgroundColor() }
+    }
+
+    /// Color used while the text view is the unemphasized (inactive) selection.
+    /// Defaults to the system color; STTextView overrides it from `unemphasizedSelectedTextBackgroundColor`.
+    var unemphasizedColor: NSColor = .unemphasizedSelectedTextBackgroundColor {
+        didSet { updateBackgroundColor() }
     }
 
     override var isFlipped: Bool {

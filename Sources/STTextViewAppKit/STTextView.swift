@@ -417,6 +417,20 @@ open class STTextView: NSView, NSTextInput, NSTextContent, STTextViewProtocol {
     @objc
     open dynamic var selectedLineHighlightColor = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.25)
 
+    /// The background color of the text selection highlight while the text view is
+    /// emphasized (active / first responder).
+    ///
+    /// `nil` (the default) uses the system `NSColor.selectedTextBackgroundColor`.
+    @Invalidating(.display)
+    open var selectedTextBackgroundColor: NSColor? = nil
+
+    /// The background color of the text selection highlight while the text view is
+    /// unemphasized (inactive).
+    ///
+    /// `nil` (the default) uses the system `NSColor.unemphasizedSelectedTextBackgroundColor`.
+    @Invalidating(.display)
+    open var unemphasizedSelectedTextBackgroundColor: NSColor? = nil
+
     /// The text view's background color
     @Invalidating(.display)
     @objc
@@ -1320,6 +1334,8 @@ open class STTextView: NSView, NSTextInput, NSTextContent, STTextViewProtocol {
 
                 if !selectionFrame.size.width.isZero {
                     let selectionHighlightView = STSelectionHighlightView(frame: selectionFrame)
+                    selectionHighlightView.emphasizedColor = selectedTextBackgroundColor ?? .selectedTextBackgroundColor
+                    selectionHighlightView.unemphasizedColor = unemphasizedSelectedTextBackgroundColor ?? .unemphasizedSelectedTextBackgroundColor
                     selectionView.addSubview(selectionHighlightView)
 
                     // Remove insertion point when selection
