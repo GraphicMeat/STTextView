@@ -268,6 +268,58 @@
             XCTAssertEqual(textView.textLayoutManager.usageBoundsForTextContainer.height, fullHeight, accuracy: 0.5)
         }
 
+        // MARK: - STTextLayoutFragment.draw(at:in:) skip guard
+
+        /// `draw(at:in:)` guards `!isCollapsed` and returns before touching the
+        /// context (STTextLayoutFragment.swift). Proves that guard headlessly:
+        /// grab a real, production-wired collapsed fragment, hand it an offscreen
+        /// bitmap pre-filled with a sentinel byte pattern, call draw, and assert
+        /// the buffer is byte-for-byte unchanged -- i.e. nothing was painted.
+        @MainActor
+        func testCollapsedFragmentDrawIsANoOp() {
+            let textView = makeFoldTextView()
+            textView.foldedRanges = [bodyRange(textView)]
+            textView.textLayoutManager.ensureLayout(for: textView.textLayoutManager.documentRange)
+
+            var collapsedFragment: STTextLayoutFragment?
+            textView.textLayoutManager.enumerateTextLayoutFragments(from: textView.textLayoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                if let stFragment = fragment as? STTextLayoutFragment, stFragment.isCollapsed {
+                    collapsedFragment = stFragment
+                    return false // found one, stop enumerating
+                }
+                return true
+            }
+            guard let fragment = collapsedFragment else {
+                XCTFail("expected at least one collapsed fragment among Line 2-4's bodies")
+                return
+            }
+
+            let width = 64, height = 32, bytesPerPixel = 4
+            let bufferSize = width * height * bytesPerPixel
+            let buffer = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 4)
+            defer { buffer.deallocate() }
+            memset(buffer, 0xAB, bufferSize) // sentinel fill -- not the color anything would legitimately draw
+
+            guard let context = CGContext(
+                data: buffer,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * bytesPerPixel,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                XCTFail("failed to create offscreen bitmap context")
+                return
+            }
+
+            let before = Data(bytes: buffer, count: bufferSize)
+            fragment.draw(at: .zero, in: context)
+            let after = Data(bytes: buffer, count: bufferSize)
+
+            XCTAssertEqual(before, after, "draw(at:in:) must be a no-op for a collapsed fragment")
+        }
+
         @MainActor
         func testIsRangeFoldedReflectsFoldedRanges() {
             let textView = makeFoldTextView()
