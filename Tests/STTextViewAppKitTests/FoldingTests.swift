@@ -270,11 +270,48 @@
 
         // MARK: - STTextLayoutFragment.draw(at:in:) skip guard
 
+        /// Offscreen ARGB bitmap harness shared by the collapsed/uncollapsed
+        /// draw tests below. A raw `CGContext` on a bitmap is bottom-left-
+        /// origin/y-up, unlike AppKit's usual flipped drawing space, which
+        /// raised the concern that glyphs could land mirrored/out-of-bounds
+        /// and never touch the buffer -- making an "unchanged buffer"
+        /// assertion in the collapsed-fragment test pass for the wrong
+        /// reason. testUncollapsedFragmentDrawPaintsInk is the positive
+        /// control for that: it proves, empirically, that this harness (no
+        /// flip transform needed) does register real ink -- fragment.draw
+        /// changes ~10% of the buffer's bytes for a visible line. If that
+        /// control ever starts failing, add a flip transform here
+        /// (translate + scale) before trusting the collapsed-fragment test again.
+        private func makeDrawHarness(width: Int = 64, height: Int = 32) -> (context: CGContext, buffer: UnsafeMutableRawPointer, bufferSize: Int) {
+            let bytesPerPixel = 4
+            let bufferSize = width * height * bytesPerPixel
+            let buffer = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 4)
+            memset(buffer, 0xAB, bufferSize) // sentinel fill -- not the color anything would legitimately draw
+
+            guard let context = CGContext(
+                data: buffer,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * bytesPerPixel,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                fatalError("failed to create offscreen bitmap context")
+            }
+
+            return (context, buffer, bufferSize)
+        }
+
         /// `draw(at:in:)` guards `!isCollapsed` and returns before touching the
         /// context (STTextLayoutFragment.swift). Proves that guard headlessly:
         /// grab a real, production-wired collapsed fragment, hand it an offscreen
         /// bitmap pre-filled with a sentinel byte pattern, call draw, and assert
         /// the buffer is byte-for-byte unchanged -- i.e. nothing was painted.
+        ///
+        /// On its own this is a vacuous pass if the harness can't detect ink
+        /// AT ALL (e.g. glyphs landing out-of-bounds). testUncollapsedFragmentDrawPaintsInk
+        /// is the positive control that rules that out using the identical harness.
         @MainActor
         func testCollapsedFragmentDrawIsANoOp() {
             let textView = makeFoldTextView()
@@ -294,30 +331,49 @@
                 return
             }
 
-            let width = 64, height = 32, bytesPerPixel = 4
-            let bufferSize = width * height * bytesPerPixel
-            let buffer = UnsafeMutableRawPointer.allocate(byteCount: bufferSize, alignment: 4)
-            defer { buffer.deallocate() }
-            memset(buffer, 0xAB, bufferSize) // sentinel fill -- not the color anything would legitimately draw
+            let harness = makeDrawHarness()
+            defer { harness.buffer.deallocate() }
 
-            guard let context = CGContext(
-                data: buffer,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * bytesPerPixel,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                XCTFail("failed to create offscreen bitmap context")
+            let before = Data(bytes: harness.buffer, count: harness.bufferSize)
+            fragment.draw(at: .zero, in: harness.context)
+            let after = Data(bytes: harness.buffer, count: harness.bufferSize)
+
+            XCTAssertEqual(before, after, "draw(at:in:) must be a no-op for a collapsed fragment")
+        }
+
+        /// Positive control for the harness above: an UNCOLLAPSED fragment
+        /// from the same text view, drawn into an identical fresh buffer,
+        /// must actually change it. Without this, "buffer unchanged" in the
+        /// collapsed test is indistinguishable from a harness that simply
+        /// never renders anything into the buffer (e.g. an unflipped
+        /// context sending glyphs out-of-bounds) -- a vacuous pass.
+        @MainActor
+        func testUncollapsedFragmentDrawPaintsInk() {
+            let textView = makeFoldTextView()
+            textView.foldedRanges = [bodyRange(textView)]
+            textView.textLayoutManager.ensureLayout(for: textView.textLayoutManager.documentRange)
+
+            var visibleFragment: STTextLayoutFragment?
+            textView.textLayoutManager.enumerateTextLayoutFragments(from: textView.textLayoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                if let stFragment = fragment as? STTextLayoutFragment, !stFragment.isCollapsed {
+                    visibleFragment = stFragment
+                    return false // found one (Line 1, the fold head), stop enumerating
+                }
+                return true
+            }
+            guard let fragment = visibleFragment else {
+                XCTFail("expected at least one uncollapsed fragment (the fold head, Line 1)")
                 return
             }
 
-            let before = Data(bytes: buffer, count: bufferSize)
-            fragment.draw(at: .zero, in: context)
-            let after = Data(bytes: buffer, count: bufferSize)
+            let harness = makeDrawHarness()
+            defer { harness.buffer.deallocate() }
 
-            XCTAssertEqual(before, after, "draw(at:in:) must be a no-op for a collapsed fragment")
+            let before = Data(bytes: harness.buffer, count: harness.bufferSize)
+            fragment.draw(at: .zero, in: harness.context)
+            let after = Data(bytes: harness.buffer, count: harness.bufferSize)
+
+            XCTAssertNotEqual(before, after, "draw(at:in:) for a visible fragment must paint ink -- if this fails, the harness itself can't detect drawing")
         }
 
         @MainActor
