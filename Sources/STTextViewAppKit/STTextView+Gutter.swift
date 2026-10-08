@@ -134,16 +134,8 @@ extension STTextView {
                 return
             }
 
-            // Calculate how many lines exist before the viewport
-            let textElementsBeforeViewport = textContentManager.textElements(
-                for: NSTextRange(
-                    location: textLayoutManager.documentRange.location,
-                    end: viewportRange.location
-                )!
-            )
-
             var requiredWidthFitText = gutterView.minimumThickness
-            let startLineIndex = textElementsBeforeViewport.count
+            let startLineIndex = lineIndexBeforeViewport(viewportRange.location)
             var linesCount = 0
 
             for (layoutFragment, fragmentView) in visibleFragmentViews {
@@ -225,6 +217,40 @@ extension STTextView {
                 }
             }
         }
+    }
+
+    /// Number of paragraphs before `location`, counted from the previous viewport start when one
+    /// is known (see `gutterLineAnchor`) rather than from the document start.
+    private func lineIndexBeforeViewport(_ location: any NSTextLocation) -> Int {
+        func paragraphs(from start: any NSTextLocation, to end: any NSTextLocation) -> Int {
+            guard let range = NSTextRange(location: start, end: end) else { return 0 }
+            return textContentManager.textElements(for: range).count
+        }
+
+        guard let storage = (textContentManager as? NSTextContentStorage)?.textStorage else {
+            return paragraphs(from: textLayoutManager.documentRange.location, to: location)
+        }
+        if gutterLineAnchorObserver == nil {
+            gutterLineAnchorObserver = NotificationCenter.default.addObserver(
+                forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+            ) { [weak self] note in
+                guard let storage = note.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
+                MainActor.assumeIsolated { self?.gutterLineAnchor = nil }
+            }
+        }
+
+        let line: Int
+        if let anchor = gutterLineAnchor {
+            switch anchor.location.compare(location) {
+            case .orderedSame: line = anchor.line
+            case .orderedAscending: line = anchor.line + paragraphs(from: anchor.location, to: location)
+            case .orderedDescending: line = anchor.line - paragraphs(from: location, to: anchor.location)
+            }
+        } else {
+            line = paragraphs(from: textLayoutManager.documentRange.location, to: location)
+        }
+        gutterLineAnchor = (location, line)
+        return line
     }
 
     private func layoutGutterMarkers() {

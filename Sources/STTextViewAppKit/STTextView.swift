@@ -410,6 +410,14 @@ open class STTextView: NSView, NSTextInput, NSTextContent, STTextViewProtocol {
     /// Gutter view
     public var gutterView: STGutterView?
 
+    /// Line index (paragraphs before it) of the viewport start the gutter last numbered, so the
+    /// next layout counts only the paragraphs between the two viewport starts. Counting from the
+    /// document start on every layout materialised every paragraph above the viewport, which
+    /// cost more the deeper the scroll and stalled scrolling into unseen text of a large file.
+    var gutterLineAnchor: (location: any NSTextLocation, line: Int)?
+    /// Drops `gutterLineAnchor` when the characters change (attribute-only edits keep it).
+    var gutterLineAnchorObserver: NSObjectProtocol?
+
     /// The highlight color of the selected line.
     ///
     /// Note: Needs ``highlightSelectedLine`` to be set to `true`
